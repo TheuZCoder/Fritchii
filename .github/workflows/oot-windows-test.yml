@@ -2,7 +2,10 @@ name: Fritchii OoT test build (Windows x64)
 
 on:
   push:
-    branches: [fix/oot-deleted-buffer-bindings, perf/oot-vulkan-pipeline-cache]
+    branches:
+      - fix/oot-deleted-buffer-bindings
+      - perf/oot-vulkan-pipeline-cache
+      - fix/oot-water-shadow-tiles
 
 permissions:
   contents: read
@@ -80,8 +83,8 @@ jobs:
       - name: Build for Windows
         run: cmake --build build --parallel 4 --target tests yuzu
 
-      - name: Test buffer and pipeline cache policies
-        run: ./build/bin/tests.exe '[deleted_buffer_bindings],[pipeline_cache]'
+      - name: Test texture handles, buffer invalidation and pipeline cache policy
+        run: ./build/bin/tests.exe '[texture_handles],[deleted_buffer_bindings],[pipeline_cache]'
 
       - name: Package the emulator
         run: |

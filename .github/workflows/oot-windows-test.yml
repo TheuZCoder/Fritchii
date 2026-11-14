@@ -6,6 +6,7 @@ on:
       - fix/oot-deleted-buffer-bindings
       - perf/oot-vulkan-pipeline-cache
       - fix/oot-water-shadow-tiles
+      - perf/oot-kokiri-query-cache
 
 permissions:
   contents: read

@@ -1,0 +1,104 @@
+name: Fritchii OoT test build (Windows x64)
+
+on:
+  push:
+    branches: [fix/oot-deleted-buffer-bindings]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oot-windows-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-x64:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out source
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+
+      - name: Set up Visual Studio SDK and libraries
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@b344308e4483fc892e0d27b3cd1b173ebdd95f06
+        with:
+          version: "6.8.3"
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtcharts
+          cache: true
+
+      - name: Fetch the GLSL compiler
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'glslang.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'glslang'
+          $url = 'https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip'
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          $expected = '82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b'
+          if ((Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash -ne $expected) {
+            throw 'Unexpected glslang archive SHA-256'
+          }
+          Expand-Archive -LiteralPath $zip -DestinationPath $dir
+          $compiler = Get-ChildItem -LiteralPath $dir -Recurse -Filter glslang.exe -File | Select-Object -First 1
+          if (-not $compiler) {
+            throw 'glslang.exe is missing from the archive'
+          }
+          & $compiler.FullName --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "GLSLANG_EXE=$($compiler.FullName)" >> $env:GITHUB_ENV
+
+      - name: Configure the emulator and tests
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER=clang-cl
+          -DCMAKE_CXX_COMPILER=clang-cl
+          -DENABLE_WERROR=OFF
+          -DBUILD_TESTING=ON
+          -DYUZU_TESTS=ON
+          -DYUZU_CMD=OFF
+          -DYUZU_ROOM=OFF
+          -DYUZU_ROOM_STANDALONE=OFF
+          -DYUZU_USE_BUNDLED_QT=OFF
+          -DYUZU_USE_BUNDLED_SDL3=ON
+          -DVulkanHeaders_FORCE_BUNDLED=ON
+          -DVulkanUtilityLibraries_FORCE_BUNDLED=ON
+          -DENABLE_UPDATE_CHECKER=OFF
+          -DUSE_DISCORD_PRESENCE=OFF
+          "-DGLSLANGVALIDATOR=$env:GLSLANG_EXE"
+
+      - name: Build for Windows
+        run: cmake --build build --parallel 4 --target tests yuzu
+
+      - name: Test buffer-cache invalidation
+        run: ./build/bin/tests.exe '[deleted_buffer_bindings]'
+
+      - name: Package the emulator
+        run: |
+          $package = New-Item -ItemType Directory -Path 'build/package'
+          $exe = Copy-Item -LiteralPath 'build/bin/lichii.exe' -Destination $package.FullName -PassThru
+          Copy-Item -LiteralPath 'build/bin/qt.conf', 'LICENSE.txt' -Destination $package.FullName
+          windeployqt --release --no-translations --dir $package.FullName --plugindir (Join-Path $package.FullName 'plugins') $exe.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($file in 'Qt6Core.dll', 'Qt6Charts.dll', 'plugins/platforms/qwindows.dll') {
+            if (-not (Test-Path -LiteralPath (Join-Path $package.FullName $file) -PathType Leaf)) {
+              throw "Required runtime file is missing: $file"
+            }
+          }
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: Fritchii-OoT-Windows-x64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: build/package/
+          if-no-files-found: error
+          retention-days: 14

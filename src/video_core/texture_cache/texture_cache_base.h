@@ -269,6 +269,10 @@ public:
     /// UpdateRenderTargets should be called before this
     Framebuffer* GetFramebuffer();
 
+    /// Whether render target 0 was first written in an earlier frame: a target the title draws
+    /// every frame rather than one it fills once.
+    [[nodiscard]] bool ColorTargetWrittenBeforeThisFrame() noexcept;
+
     [[nodiscard]] const RenderTargets& GetRenderTargets() const noexcept {
         return render_targets;
     }
@@ -629,6 +633,7 @@ private:
 
     u64 modification_tick = 0;
     u64 frame_tick = 0;
+    bool clearing_render_targets = false;
 
     Common::ThreadWorker texture_decode_worker{1, "TextureDecoder", {},
                                                Common::ThreadPlacement::Efficiency};

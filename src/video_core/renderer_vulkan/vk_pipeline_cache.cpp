@@ -365,6 +365,21 @@ bool GraphicsPipelineCacheKey::operator==(const GraphicsPipelineCacheKey& rhs) c
 }
 
 namespace {
+u32 ActiveColorTargetCount(const Maxwell& regs) noexcept {
+    const u32 count =
+        std::min<u32>(regs.rt_control.count, static_cast<u32>(Maxwell::NumRenderTargets));
+    u32 active = 0;
+    for (u32 i = 0; i < count; ++i) {
+        const u32 rt_index = regs.rt_control.Map(i);
+        if (rt_index < Maxwell::NumRenderTargets &&
+            regs.rt[rt_index].format != Tegra::RenderTargetFormat::NONE &&
+            regs.color_mask[regs.color_mask_common ? 0 : rt_index].raw != 0) {
+            ++active;
+        }
+    }
+    return active;
+}
+
 // NVIDIA's and AMD's drivers keep a disk cache of built pipelines of their own. Eden's copy on top
 // only kept every pipeline the title ever built in host memory (title 1: a 245 MB file, ~0.35 GB
 // of RAM for the session) and copied it whole at each save, which stalled frames; pipelines built
@@ -1085,11 +1100,26 @@ GraphicsPipeline* PipelineCache::BuiltPipeline(GraphicsPipeline* pipeline) const
     if (!use_asynchronous_shaders) {
         return pipeline;
     }
+    const auto& regs = maxwell3d->regs;
     const auto& draw_state = maxwell3d->draw_manager.draw_state;
-    const bool discard = CanDiscardPendingDraw(maxwell3d->GetNativeMacroEngine().native_turing,
-                                              maxwell3d->regs.zeta_enable != 0,
-                                              draw_state.draw_element_count,
-                                              draw_state.draw_element_count);
+    const bool native = maxwell3d->GetNativeMacroEngine().native_turing;
+    NativePendingDraw native_draw{};
+    // Ported from Eglantine #874: waiting for every new native pipeline held Mario Kart World's
+    // frames 50-330 ms per pipeline.
+    // EDEN_NX2_NATIVE_ASYNC=0 waits for every native draw again.
+    static const bool native_async = [] {
+        const char* value = std::getenv("EDEN_NX2_NATIVE_ASYNC");
+        return value == nullptr || value[0] != '0';
+    }();
+    if (native && native_async) {
+        native_draw.depth_tested = regs.zeta_enable != 0 && regs.depth_test_enable != 0;
+        native_draw.writes_color = ActiveColorTargetCount(regs) != 0;
+        native_draw.target_redrawn = native_draw.depth_tested && native_draw.writes_color &&
+                                     texture_cache.ColorTargetWrittenBeforeThisFrame();
+    }
+    const bool discard =
+        CanDiscardPendingDraw(native, regs.zeta_enable != 0, draw_state.draw_element_count,
+                              draw_state.draw_element_count, native_draw);
     return discard ? nullptr : pipeline;
 }
 

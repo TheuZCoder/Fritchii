@@ -7,6 +7,7 @@ on:
       - perf/oot-vulkan-pipeline-cache
       - fix/oot-water-shadow-tiles
       - perf/oot-kokiri-query-cache
+      - claude/project-thread-q7k0cj
 
 permissions:
   contents: read
@@ -85,7 +86,7 @@ jobs:
         run: cmake --build build --parallel 4 --target tests yuzu
 
       - name: Test texture handles, buffer invalidation and pipeline cache policy
-        run: ./build/bin/tests.exe '[texture_handles],[deleted_buffer_bindings],[pipeline_cache]'
+        run: ./build/bin/tests.exe '[texture_handles],[deleted_buffer_bindings],[pipeline_cache],[async_draw]'
 
       - name: Package the emulator
         run: |
